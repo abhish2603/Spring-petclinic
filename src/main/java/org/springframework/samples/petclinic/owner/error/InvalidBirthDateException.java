@@ -1,6 +1,6 @@
 package org.springframework.samples.petclinic.owner.error;
-public class DuplicatePetNameException extends RuntimeException{
-	public DuplicatePetNameException(String message) {
+public class InvalidBirthDateException extends RuntimeException{
+	public InvalidBirthDateException(String message) {
 		super(message);
 	}
 }
