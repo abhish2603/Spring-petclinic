@@ -18,7 +18,11 @@ package org.springframework.samples.petclinic.owner;
 import java.time.LocalDate;
 import java.util.Collection;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.samples.petclinic.owner.error.DuplicatePetNameException;
+import org.springframework.samples.petclinic.owner.error.InvalidBirthDateException;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.ModelMap;
 import org.springframework.util.StringUtils;
@@ -48,10 +52,29 @@ class PetController {
 
 	private final RedisTemplate<String,Object> redisTemplate;
 
+	private final Logger LOGGER = LoggerFactory.getLogger(PetController.class);
+
 	public PetController(OwnerRepository owners, RedisTemplate<String, Object> redisTemplate) {
 		this.owners = owners;
 		this.redisTemplate = redisTemplate;
 	}
+
+	private void validatePet(Pet pet, Owner owner, BindingResult result) {
+		String petName = pet.getName();
+
+		if (StringUtils.hasText(petName)) {
+			Pet existingPet = owner.getPet(petName.toLowerCase(), false);
+			if (existingPet != null && existingPet.getId() != pet.getId()) {
+				throw new DuplicatePetNameException("Pet with the same name already exists.");
+			}
+		}
+
+		LocalDate currentDate = LocalDate.now();
+		if (pet.getBirthDate() != null && pet.getBirthDate().isAfter(currentDate)) {
+			throw new InvalidBirthDateException("Pet's birth date cannot be in the future.");
+		}
+	}
+
 
 	@ModelAttribute("types")
 	public Collection<PetType> populatePetTypes() {
@@ -109,23 +132,18 @@ class PetController {
 
 	@PostMapping("/pets/new")
 	public String processCreationForm(Owner owner, @Valid Pet pet, BindingResult result, ModelMap model) {
-		if (StringUtils.hasText(pet.getName()) && pet.isNew() && owner.getPet(pet.getName(), true) != null) {
-			result.rejectValue("name", "duplicate", "already exists");
-		}
+		LOGGER.info("Inside process creation form");
+		validatePet(pet, owner, result);
 
-		LocalDate currentDate = LocalDate.now();
-		if (pet.getBirthDate() != null && pet.getBirthDate().isAfter(currentDate)) {
-			result.rejectValue("birthDate", "typeMismatch.birthDate");
-		}
-
-		owner.addPet(pet);
 		if (result.hasErrors()) {
 			model.put("pet", pet);
 			return VIEWS_PETS_CREATE_OR_UPDATE_FORM;
 		}
 
+		owner.addPet(pet);
 		this.owners.save(owner);
 		return "redirect:/owners/{ownerId}";
+
 	}
 
 	@GetMapping("/pets/{petId}/edit")
@@ -137,21 +155,8 @@ class PetController {
 
 	@PostMapping("/pets/{petId}/edit")
 	public String processUpdateForm(@Valid Pet pet, BindingResult result, Owner owner, ModelMap model) {
-
-		String petName = pet.getName();
-
-		// checking if the pet name already exist for the owner
-		if (StringUtils.hasText(petName)) {
-			Pet existingPet = owner.getPet(petName.toLowerCase(), false);
-			if (existingPet != null && existingPet.getId() != pet.getId()) {
-				result.rejectValue("name", "duplicate", "already exists");
-			}
-		}
-
-		LocalDate currentDate = LocalDate.now();
-		if (pet.getBirthDate() != null && pet.getBirthDate().isAfter(currentDate)) {
-			result.rejectValue("birthDate", "typeMismatch.birthDate");
-		}
+		LOGGER.info("Inside process update form");
+		validatePet(pet, owner, result);
 
 		if (result.hasErrors()) {
 			model.put("pet", pet);
